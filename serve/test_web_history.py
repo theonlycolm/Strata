@@ -66,6 +66,26 @@ class OffIsThePageFromBefore(unittest.TestCase):
                 if call != '"v1/chat/completions"':                    # the question itself, as ever
                     self.assertNotRegex(call, r"chat|histor", f"{name}: {call}")
 
+    def test_the_export_button_needs_the_saved_chats_list(self):
+        self.assertIn('<button class="st-btn st-btn--secondary" id="s-export" type="button" data-i18n="chats.export">Export chats</button>', self.html)
+        self.assertIn('$("s-export").onclick = exportChatFile;', self.ui)
+        self.assertRegex(self.ui, r"function exportChatFile\(\) \{\s*if \(!listOn\)")
+        self.assertNotIn("fetch(", self.ui, "export writes a file, it never asks the server")
+
+    def test_the_import_button_reads_a_file_not_the_server(self):
+        self.assertIn('<button class="st-btn st-btn--secondary" id="s-import" type="button" data-i18n="chats.import">Import chats</button>', self.html)
+        self.assertIn('<input type="file" id="import-file" accept=".json,application/json" hidden>', self.html)
+        self.assertIn('$("s-import").onclick = () => $("import-file").click();', self.ui)
+        self.assertRegex(self.ui, r"async function importChatFile\(file\) \{\s*if \(!listOn\)")
+        # what comes in goes through the same cleaner as a chat typed now, so the store never holds a file's contents
+        self.assertIn("chatStore.put(H.cleanChat(c))", self.ui)
+
+    def test_a_huge_file_is_refused_before_it_is_read(self):
+        self.assertIn("const IMPORT_FILE_MAX = 50 * 1024 * 1024;", self.ui)
+        self.assertRegex(self.ui, r"if \(file\.size > IMPORT_FILE_MAX\) \{")
+        # the picker is emptied after each pick, so the same file can be chosen again after a refusal
+        self.assertIn('$("import-file").value = "";', self.ui)
+
     def test_the_edit_controls_wait_for_a_finished_answer(self):
         self.assertIn("const historyLocked = () => !!busy || !!panel || !!pending;", self.ui)
         self.assertIn("$(\"s-list\").disabled = $(\"s-edit\").disabled = !!busy || !!panel;", self.app)

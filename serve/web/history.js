@@ -28,6 +28,96 @@
                                                     files: (m.files || []).map((f) => ({name: f.name}))}));
   const cleanChat = (c) => ({...c, messages: cleanMessages(c.messages)});
 
+  // Export: the whole list as one JSON file the user keeps, so a cache purge cannot take the chats. The contents an
+  // attachment has in this page (a picture's data, a file's text) go in, so the file is a full backup; a chat that
+  // came back from the browser's store holds its names only, and the file keeps it that way. A copy: the export
+  // never touches the chats on the screen.
+  function exportChats(chats, now = Date.now()) {
+    return {app: "strata", kind: "chats", version: 1, exported: now,
+            chats: chats.map((c) => JSON.parse(JSON.stringify(c)))};
+  }
+
+  // Import: read back a file exportChats wrote. A chat is accepted only when it has the shape the page can show: an
+  // id and a messages array, and every message a role and a text; the rest goes to `invalid`. What an attachment
+  // claims to hold is kept only as far as it can be shown safely here: a picture's url goes straight into an <img>,
+  // so it must be a data: image no bigger than what this page would have attached itself; a file's text must be a
+  // string within the page's own attach limit. Anything else keeps its name only, like a chat that came back from
+  // the browser's store. Then the merge: a chat whose content matches one already here is skipped, so importing the
+  // same file twice adds nothing; a chat whose id is taken by a *different* chat comes in as a new one under a fresh
+  // id, keeping its title, date, messages and parent title -- the chat already here is never touched. A branch that
+  // came in with its original is re-linked to where the original landed. The chats already here are never touched.
+  const IMPORT_TEXT_MAX = 512 * 1024;        // app.js MAX_TEXT_FILE: the biggest attached text file the page reads
+  const IMPORT_IMAGE_MAX = 20 * 1024 * 1024; // a data URL past this was never attached by this page
+  function safeAttachment(a, isImage) {
+    if (!a || typeof a !== "object") return null;
+    const name = typeof a.name === "string" ? a.name : "";
+    if (!isImage) return typeof a.text === "string" && a.text.length <= IMPORT_TEXT_MAX ? {...a, name} : {name};
+    const ok = typeof a.url === "string" && /^data:image\//i.test(a.url) && a.url.length <= IMPORT_IMAGE_MAX;
+    return ok ? {...a, name, url: a.url} : {name};
+  }
+  const importMessage = (m) => {
+    if (!m || typeof m !== "object" || typeof m.role !== "string" || typeof m.text !== "string") return null;
+    return {...m, images: (Array.isArray(m.images) ? m.images : []).map((a) => safeAttachment(a, true)).filter(Boolean),
+               files: (Array.isArray(m.files) ? m.files : []).map((a) => safeAttachment(a, false)).filter(Boolean)};
+  };
+  // A fingerprint of what a chat *is*: the same chat exported twice gives the same key, whatever its id. Object keys are
+  // sorted so the order they were written in does not matter; the id and the parent's id are blanked because the merge
+  // decides those, not the content; an attachment counts by its name only, because a chat that came back from the
+  // browser's store holds names only and is the same chat. Arrays keep their order -- the messages are the conversation.
+  const named = (list) => (Array.isArray(list) ? list : []).map((a) => ({name: a && typeof a === "object" ? a.name : ""}));
+  function stableKey(c) {
+    const body = {title: c.title, time: c.time,
+                  parent: c.parent && typeof c.parent === "object" ? {title: c.parent.title} : null,
+                  messages: (Array.isArray(c.messages) ? c.messages : []).map((m) => m && typeof m === "object"
+                    ? {...m, images: named(m.images), files: named(m.files)} : m)};
+    const canon = (v) => {
+      if (Array.isArray(v)) return v.map(canon);
+      if (v && typeof v === "object") return Object.keys(v).sort().reduce((o, k) => ((o[k] = canon(v[k])), o), {});
+      return v;
+    };
+    return JSON.stringify(canon(body));
+  }
+  function importChats(existing, incoming, now = Date.now(), rnd = Math.random) {
+    const out = {chats: [], skipped: 0, renamed: 0, invalid: 0};
+    const here = new Map(); // content key -> the chat already here with it, so an identical import is skipped
+    for (const c of existing) here.set(stableKey(c), c);
+    const taken = new Set(existing.map((c) => c.id));
+    const accepted = []; // where each imported chat landed -- to re-link branches after the loop
+    let seed = rnd();
+    for (const c of Array.isArray(incoming) ? incoming : []) {
+      const shaped = c && typeof c === "object" && typeof c.id === "string" && c.id && Array.isArray(c.messages);
+      const messages = shaped ? c.messages.map(importMessage) : null;
+      if (!messages || messages.some((m) => m === null)) { out.invalid++; continue; }
+      const chat = {...c, title: typeof c.title === "string" ? c.title : "",
+                    time: Number.isFinite(c.time) ? c.time : now, messages};
+      if (chat.parent && typeof chat.parent === "object") {
+        chat.parent = {id: typeof chat.parent.id === "string" ? chat.parent.id : "",
+                       title: typeof chat.parent.title === "string" ? chat.parent.title : ""};
+      } else delete chat.parent;
+      if (here.has(stableKey(chat))) { out.skipped++; continue; } // the same chat, by content: nothing to add
+      const claimed = chat.id;                                   // the id the file said, before any rename
+      if (taken.has(chat.id)) {                                  // a different chat under a used id: a new one
+        let fresh;
+        do { fresh = newChatId(now, seed++); } while (taken.has(fresh));
+        chat.id = fresh;
+        out.renamed++;
+      }
+      taken.add(chat.id);
+      here.set(stableKey(chat), chat);
+      accepted.push([claimed, chat]);
+    }
+    // a branch whose original came in the same file points at where the original landed; one whose original is
+    // already here (or gone) keeps its parent title, and the page only links when the id is in the list
+    const landed = new Map(accepted);
+    for (const [, chat] of accepted) {
+      if (!chat.parent) continue;
+      const moved = landed.get(chat.parent.id);
+      if (moved && moved.id !== chat.parent.id) chat.parent = {...chat.parent, id: moved.id};
+    }
+    out.chats.push(...accepted.map(([, chat]) => chat));
+    return out;
+  }
+
   // "today" | "yesterday" | "week" | "month" | "older", by calendar days back from now
   function groupKey(t, now = Date.now()) {
     const days = Math.floor((now - t) / 86400000);
@@ -83,8 +173,8 @@
     return {...newChat(now, rnd), title, parent: {id: chat.id, title: chatTitle(chat)}, messages: copy};
   }
 
-  const api = {TITLE_MAX, newChat, chatTitle, cleanMessages, cleanChat, groupKey, filterChats, lostAttachments, draftOf, rewind,
-               regenerate, editAnswer, branch};
+  const api = {TITLE_MAX, newChat, chatTitle, cleanMessages, cleanChat, exportChats, stableKey, importChats, groupKey, filterChats, lostAttachments,
+               draftOf, rewind, regenerate, editAnswer, branch};
   root.StrataHistory = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

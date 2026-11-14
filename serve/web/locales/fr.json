@@ -32,6 +32,28 @@
   "chat.toolLimit": "arrêtée à la limite de {n} tours d’outils (mcp.max_rounds)",
   "chat.untitled": "Nouvelle conversation",
   "chat.you": "Vous",
+  "chats.export": "Exporter les conversations",
+  "chats.exported": "Conversations exportées",
+  "chats.exportedText": {
+    "one": "{n} conversation dans le fichier",
+    "other": "{n} conversations dans le fichier"
+  },
+  "chats.import": "Importer les conversations",
+  "chats.importBig": "Ce fichier est trop volumineux",
+  "chats.importBigText": "{name} dépasse 50 Mo. Exporter crée un fichier que cette page peut relire.",
+  "chats.importFailed": "Ce fichier n’a pas pu être importé",
+  "chats.importFailedText": "Ce n’est pas un fichier de conversations que cette page peut lire. Exporter en crée un à partir de vos conversations.",
+  "chats.importNothing": "Rien de nouveau à importer",
+  "chats.importSeenText": {
+    "one": "{n} conversation du fichier est déjà ici.",
+    "other": "{n} conversations du fichier sont déjà ici."
+  },
+  "chats.imported": "Conversations importées",
+  "chats.importedText": {
+    "one": "{n} conversation ajoutée",
+    "other": "{n} conversations ajoutées"
+  },
+  "chats.needList": "Activez d’abord la liste des conversations enregistrées.",
   "close": "Fermer",
   "code.copy": "Copier le code",
   "code.label": "code",

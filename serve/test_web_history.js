@@ -102,6 +102,120 @@ const cases = {
     assert.equal(original.messages[1].tools[0].result, "secret result");
     assert.equal(H.chatTitle(H.branch(original, [], 0, "Branch of q1"), "x"), "Branch of q1", "a branch at the first message keeps its title");
   },
+  export_round_trip() {
+    const file = H.exportChats([{id: "c1", title: "Mine", time: 1, messages: convo()}, H.newChat(2, 0.5)], 99);
+    assert.deepEqual(Object.keys(file), ["app", "kind", "version", "exported", "chats"]);
+    assert.equal(file.app, "strata"); assert.equal(file.kind, "chats"); assert.equal(file.version, 1); assert.equal(file.exported, 99);
+    assert.deepEqual(JSON.parse(JSON.stringify(file)), file, "plain JSON: nothing a file cannot hold");
+    const back = JSON.parse(JSON.stringify(file)).chats;
+    assert.deepEqual(back[0].messages.map((m) => m.text), ["q1", "a1", "q2", "a2"], "every message comes back");
+    assert.equal(back[0].title, "Mine"); assert.equal(back[0].time, 1);
+    assert.deepEqual(back[0].messages[1].tools[0].result, "secret result", "tool calls and their results stay");
+    assert.deepEqual(back[1], {id: back[1].id, title: "", time: 2, messages: []}, "an empty chat is exported too");
+  },
+  export_keeps_attachment_contents() {
+    const file = H.exportChats([{id: "c1", title: "", time: 1, messages: convo()}]);
+    assert.equal(file.chats[0].messages[0].images[0].url, "data:image/png;base64,AAA", "the picture's contents go in");
+    assert.equal(file.chats[0].messages[0].files[0].text, "notes", "and the attached file's text");
+    const namesOnly = H.exportChats([{id: "c2", title: "", time: 1, messages: H.cleanMessages(convo())}]);
+    assert.deepEqual(namesOnly.chats[0].messages[0].images, [{name: "a.png"}], "a chat reloaded from the store has names only");
+  },
+  export_does_not_touch_the_list_it_exports() {
+    const chats = [{id: "c1", title: "", time: 1, messages: convo()}];
+    const file = H.exportChats(chats);
+    file.chats[0].messages[0].text = "changed"; file.chats[0].messages[1].tools[0].result = "changed";
+    assert.notEqual(file.chats[0], chats[0], "a copy, not the same object");
+    assert.equal(chats[0].messages[0].text, "q1", "the chats on the screen are untouched");
+    assert.equal(chats[0].messages[1].tools[0].result, "secret result");
+  },
+  import_refuses_a_file_that_is_not_a_chat_list() {
+    const empty = {chats: [], skipped: 0, renamed: 0, invalid: 0};
+    assert.deepEqual(H.importChats([], "not an array"), empty, "a string is not a list of chats");
+    assert.deepEqual(H.importChats([], [null, {}, {id: "x"}, {id: "y", messages: [{role: "user"}]}]),
+                     {chats: [], skipped: 0, renamed: 0, invalid: 4}, "no id, no messages array, a message with no text: none of them");
+    const good = H.importChats([], [{id: "c1", title: "T", time: 5, messages: [{role: "user", text: "hi"}]}]);
+    assert.equal(good.chats.length, 1); assert.equal(good.invalid, 0);
+    assert.deepEqual(H.importChats([], [{id: "", messages: []}]), {chats: [], skipped: 0, renamed: 0, invalid: 1}, "an empty id is not a chat");
+  },
+  import_drops_a_foreign_image_url() {
+    const inChat = [{id: "c1", title: "", time: 1, messages: [{role: "user", text: "look", time: 1,
+      images: [{name: "ok.png", url: "data:image/png;base64,AAA"}, {name: "evil.png", url: "https://evil.example/x.png"}, {name: "big.png", url: "data:image/png;base64," + "A".repeat(20 * 1024 * 1024)}],
+      files: [{name: "n.txt", text: "notes"}, {name: "huge.txt", text: "x".repeat(512 * 1024 + 1)}]}]}];
+    const out = H.importChats([], inChat);
+    const m = out.chats[0].messages[0];
+    assert.deepEqual(m.images, [{name: "ok.png", url: "data:image/png;base64,AAA"}, {name: "evil.png"}, {name: "big.png"}],
+                     "only a data: image within the attach limit keeps its url");
+    assert.deepEqual(m.files, [{name: "n.txt", text: "notes"}, {name: "huge.txt"}], "a file text past the limit keeps its name only");
+    assert.equal(inChat[0].messages[0].images[1].url, "https://evil.example/x.png", "the file's own object is not changed");
+  },
+  imported_chats_keep_their_id_when_it_is_free() {
+    const out = H.importChats([{id: "here", title: "", time: 1, messages: [user("something else")]}],
+                              [{id: "c1", title: "Mine", time: 7, messages: [{role: "user", text: "q", time: 1}], parent: {id: "gone", title: "Old"}},
+                               {id: "here", title: "Same id", time: 9, messages: [{role: "user", text: "z", time: 1}]}]);
+    assert.equal(out.chats.length, 2); assert.equal(out.renamed, 1, "a different chat under a used id comes in as a new one");
+    assert.equal(out.chats[0].id, "c1", "a free id is kept");
+    assert.equal(out.chats[0].title, "Mine"); assert.equal(out.chats[0].time, 7, "the date comes across");
+    assert.deepEqual(out.chats[0].parent, {id: "gone", title: "Old"});
+    assert.equal(out.chats[0].messages[0].text, "q");
+    assert.notEqual(out.chats[1].id, "here", "the chat already here keeps its id");
+    assert.equal(out.chats[1].title, "Same id"); assert.equal(out.chats[1].time, 9, "the new one keeps its own date");
+    assert.deepEqual(H.importChats([], [{id: "c2", messages: [{role: "user", text: "no time"}]}], 42).chats[0].time, 42, "a chat with no time gets now");
+  },
+  reimporting_the_same_file_adds_nothing() {
+    const chats = [{id: "c1", title: "Mine", time: 5, messages: convo()},
+                   {id: "c2", title: "", time: 6, messages: [user("another")]},
+                   {id: "c3", title: "Branch", time: 7, messages: [user("q1")], parent: {id: "c1", title: "q1"}}];
+    const file = JSON.parse(JSON.stringify(H.exportChats(chats))).chats;
+    const again = H.importChats(chats, file);
+    assert.deepEqual(again.chats, [], "the same file, imported again: nothing added");
+    assert.equal(again.skipped, 3); assert.equal(again.renamed, 0); assert.equal(again.invalid, 0);
+    // and a chat reloaded from the browser's store (names only) is still the same chat as the file's copy
+    const reloaded = chats.map((c) => H.cleanChat(c));
+    const twice = H.importChats(reloaded, file);
+    assert.deepEqual(twice.chats, [], "contents in the file do not make it a different chat");
+    assert.equal(twice.skipped, 3);
+    assert.deepEqual(chats.map((c) => c.id), ["c1", "c2", "c3"], "the chats here are untouched");
+  },
+  a_changed_chat_comes_in_as_a_new_one() {
+    // the demo: a chat was edited here, then an older export of it is imported -- the edited one stays,
+    // the older one comes back beside it under a fresh id, with its own date
+    const old1 = {id: "c1", title: "Mine", time: 5, messages: [user("q1"), bot("a1")]};
+    const child = {id: "c9", title: "Branch", time: 8, messages: [user("q1")], parent: {id: "c1", title: "q1"}};
+    const file = JSON.parse(JSON.stringify(H.exportChats([old1, child]))).chats;
+    const here = [{id: "c1", title: "Mine, edited", time: 5, messages: [user("q1"), bot("a better answer")]}];
+    const out = H.importChats(here, file, 100, () => 0.5);
+    assert.equal(out.chats.length, 2); assert.equal(out.renamed, 1, "the old c1 is taken by a different chat");
+    assert.equal(out.skipped, 0);
+    const [cameOld, cameChild] = out.chats;
+    assert.notEqual(cameOld.id, "c1", "it lands under a fresh id");
+    assert.equal(cameOld.title, "Mine"); assert.equal(cameOld.time, 5, "its own title and date come across");
+    assert.deepEqual(cameOld.messages.map((m) => m.text), ["q1", "a1"], "and its messages");
+    assert.equal(here[0].title, "Mine, edited", "the chat already here is never touched");
+    assert.equal(here[0].messages[1].text, "a better answer");
+    assert.equal(cameChild.parent.id, cameOld.id, "the branch points at where its original landed");
+    assert.equal(cameChild.parent.title, "q1", "and keeps the title it carried");
+    const ids = new Set([...here.map((c) => c.id), ...out.chats.map((c) => c.id)]);
+    assert.equal(ids.size, 3, "no id is used twice");
+    // the same file again: both are here now, by content
+    const again = H.importChats([...here, ...out.chats], file);
+    assert.deepEqual(again.chats, []); assert.equal(again.skipped, 2);
+  },
+  stableKey_ignores_ids_and_attachment_contents() {
+    const a = {id: "c1", title: "T", time: 5, messages: [user("q", {images: [{name: "a.png", url: "data:image/png;base64,AAA"}]})]};
+    const b = {id: "zz9", title: "T", time: 5, messages: [user("q", {images: [{name: "a.png"}]})]};
+    assert.equal(H.stableKey(a), H.stableKey(b), "id and an attachment's contents do not count");
+    const c = {id: "c1", title: "T", time: 5, messages: [user("q", {images: [{name: "b.png"}]})]};
+    assert.notEqual(H.stableKey(a), H.stableKey(c), "a different attachment name is a different chat");
+    const d = {id: "c1", title: "T", time: 5, messages: [user("q")], parent: {id: "p1", title: "P"}};
+    const e = {id: "c1", title: "T", time: 5, messages: [user("q")], parent: {id: "p2", title: "P"}};
+    assert.equal(H.stableKey(d), H.stableKey(e), "the parent's id does not count, its title does");
+    const f = {id: "c1", title: "T", time: 5, messages: [user("q")], parent: {id: "p1", title: "Q"}};
+    assert.notEqual(H.stableKey(d), H.stableKey(f), "a different parent title is a different chat");
+    const g = {id: "c1", title: "T", time: 5, messages: [bot("x", {tools: [{name: "fs__read", result: "r"}]})]};
+    const h = {id: "c1", title: "T", time: 5, messages: [bot("x", {tools: [{result: "r", name: "fs__read"}]})]};
+    assert.equal(H.stableKey(g), H.stableKey(h), "the order keys were written in does not matter");
+    assert.notEqual(H.stableKey(a), H.stableKey({...a, messages: [user("q"), bot("a")]}), "the messages are the conversation");
+  },
 };
 
 // ---------------------------------------------------------------- the stub IndexedDB

@@ -73,6 +73,7 @@
             <button type="button" class="st-btn st-btn--icon" id="attach-btn" title="Attach a text file (or drop it here)" aria-label="Attach a file" data-i18n-label="composer.attachLabel">
               <svg class="st-icon"><use href="web/sprite.svg#i-attach"/></svg></button>
             <input type="file" id="file" multiple hidden>
+            <input type="file" id="import-file" accept=".json,application/json" hidden>
             <button type="button" class="st-btn st-btn--icon" id="new-btn" title="New chat" aria-label="New chat" data-i18n-title="chat.new" data-i18n-label="chat.new">
               <svg class="st-icon"><use href="web/sprite.svg#i-new-chat"/></svg></button>
             <button type="button" class="st-btn st-btn--icon" id="export-btn" title="Save this chat as Markdown" aria-label="Save this chat" data-i18n-title="composer.save" data-i18n-label="composer.saveLabel">
@@ -291,6 +292,10 @@
       <div class="toggle-row"><span><span data-i18n="drawer.edit">Edit and rewind messages</span><br><span class="muted small"
         data-i18n="drawer.editNote">edit an answer, ask for a new one, or go back to an earlier message (with an Undo)</span></span>
         <button class="st-toggle" id="s-edit" role="switch" aria-checked="false" aria-label="Edit and rewind messages" data-i18n-label="drawer.edit"></button></div>
+      <div class="drawer-actions">
+        <button class="st-btn st-btn--secondary" id="s-export" type="button" data-i18n="chats.export">Export chats</button>
+        <button class="st-btn st-btn--secondary" id="s-import" type="button" data-i18n="chats.import">Import chats</button>
+      </div>
       <div class="st-field">
         <label class="st-label" for="s-busy"><span data-i18n="drawer.busy">When you send while it is answering</span></label>
         <div class="seg seg--3" id="s-busy" role="radiogroup" aria-label="When you send while it is answering" data-i18n-label="drawer.busy">

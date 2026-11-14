@@ -428,10 +428,86 @@ function branchHere(i) {
   return true;
 }
 
+// ------------------------------------------------------------------ export (a file the user keeps)
+// The chats live in this browser, so a cache purge takes them. Export writes the whole list as one JSON file
+// (serve/web/history.js: H.exportChats); Import reads such a file back. Both need the saved-chats list: with the list
+// off the page keeps one chat in localStorage, as before. Nothing here goes to the server.
+function exportChatFile() {
+  if (!listOn) {
+    toast("warn", tr("chats.export", "Export chats"), tr("chats.needList", "Turn on Saved chats list in Chat settings first."), 6000);
+    return;
+  }
+  // with the list on, `chats` always holds the open chat (openChats pushes it), so there is never nothing to export
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(H.exportChats(chats))], {type: "application/json"}));
+  a.download = `strata-chats-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast("success", tr("chats.exported", "Chats exported"),
+        tr("chats.exportedText", {one: "{n} chat in the file", other: "{n} chats in the file"}, {n: chats.length}), 6000);
+}
+
+// ------------------------------------------------------------------ import (a file back)
+// The other half of export: read a file exportChatFile wrote and put its chats in the list. The file is read here, in this
+// browser, and nothing goes to the server. What the file claims is checked before anything is added (serve/web/history.js:
+// H.importChats), so a file that is not a chat list, or holds a picture whose url is not a data: image, changes nothing:
+// the list and the open chat stay exactly as they were. Importing the same file twice adds nothing -- a chat that matches
+// one already here is skipped -- and a chat whose id belongs to a *different* chat here comes in as a new chat under a
+// fresh id, so re-importing an older file cannot overwrite the edited one. A file bigger than any this page could have
+// written is refused before it is read.
+const IMPORT_FILE_MAX = 50 * 1024 * 1024; // exportChats of every chat this page can hold stays well under this
+async function importChatFile(file) {
+  if (!listOn) {
+    toast("warn", tr("chats.import", "Import chats"), tr("chats.needList", "Turn on Saved chats list in Chat settings first."), 6000);
+    return;
+  }
+  if (!file) return;
+  if (file.size > IMPORT_FILE_MAX) {
+    toast("warn", tr("chats.importBig", "That file is too large"),
+          tr("chats.importBigText", "{name} is over 50 MB. Export writes a file this page can read back.", {name: file.name}), 6000);
+    return;
+  }
+  let added;
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!parsed || parsed.kind !== "chats" || !Array.isArray(parsed.chats)) throw new Error("not a chat list");
+    added = H.importChats(chats, parsed.chats);
+  } catch (e) {
+    toast("warn", tr("chats.importFailed", "That file could not be imported"),
+          tr("chats.importFailedText", "It is not a chats file this page can read. Export writes one from the chats you have."), 6000);
+    return;
+  }
+  if (!added.chats.length) {
+    toast("warn", tr("chats.importNothing", "Nothing new to import"),
+          added.invalid ? tr("chats.importFailedText", "It is not a chats file this page can read. Export writes one from the chats you have.")
+                        : tr("chats.importSeenText", {one: "{n} chat in it is already here.", other: "{n} chats in it are already here."}, {n: added.skipped}), 6000);
+    return;
+  }
+  // the contents stay in memory for this visit, exactly like a chat typed now; the record keeps names only, as ever
+  for (const c of added.chats) { chats.push(c); chatStore.put(H.cleanChat(c)); }
+  renderSidebar();
+  const ids = added.chats.map((c) => c.id);
+  toast("success", tr("chats.imported", "Chats imported"),
+        tr("chats.importedText", {one: "{n} chat added", other: "{n} chats added"}, {n: ids.length}), 8000,
+        {label: tr("undo", "Undo"), run: () => {
+          // none of these ids can be the open chat's: an id already in the list is never imported
+          for (const id of ids) {
+            const i = chats.findIndex((c) => c.id === id);
+            if (i >= 0) chats.splice(i, 1);
+            chatStore.remove(id);
+          }
+          renderSidebar();
+        }});
+}
+
 // ------------------------------------------------------------------ wiring (called once by app.js)
 function initChats() {
   $("sidebar-toggle").onclick = () => setSidebar(!sidebarOpen, true);
   $("sidebar-new").onclick = startChat;
+  $("s-export").onclick = exportChatFile;
+  $("s-import").onclick = () => $("import-file").click();
+  // the value is cleared so the same file can be chosen again; the File itself is already in hand
+  $("import-file").onchange = () => { importChatFile($("import-file").files[0]); $("import-file").value = ""; };
   $("sidebar-search").addEventListener("input", () => { sidebarQuery = $("sidebar-search").value; renderSidebar(); });
   $("sidebar-list").addEventListener("click", (e) => {
     // a click inside the rename field is caret placement, not a click on the row: the row's handler would open the chat,

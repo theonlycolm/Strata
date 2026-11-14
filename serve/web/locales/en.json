@@ -32,6 +32,28 @@
   "chat.toolLimit": "stopped at the limit of {n} tool rounds (mcp.max_rounds)",
   "chat.untitled": "New chat",
   "chat.you": "You",
+  "chats.export": "Export chats",
+  "chats.exported": "Chats exported",
+  "chats.exportedText": {
+    "one": "{n} chat in the file",
+    "other": "{n} chats in the file"
+  },
+  "chats.import": "Import chats",
+  "chats.importBig": "That file is too large",
+  "chats.importBigText": "{name} is over 50 MB. Export writes a file this page can read back.",
+  "chats.importFailed": "That file could not be imported",
+  "chats.importFailedText": "It is not a chats file this page can read. Export writes one from the chats you have.",
+  "chats.importNothing": "Nothing new to import",
+  "chats.importSeenText": {
+    "one": "{n} chat in it is already here.",
+    "other": "{n} chats in it are already here."
+  },
+  "chats.imported": "Chats imported",
+  "chats.importedText": {
+    "one": "{n} chat added",
+    "other": "{n} chats added"
+  },
+  "chats.needList": "Turn on Saved chats list in Chat settings first.",
   "close": "Close",
   "code.copy": "Copy code",
   "code.label": "code",
